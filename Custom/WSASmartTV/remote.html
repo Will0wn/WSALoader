@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="WSA Remote">
+<meta name="theme-color" content="#0e0f11">
+<title>WSA Remote</title>
+<style>
+  :root { --bg: #0e0f11; --key: #1d1f23; --key-on: #2c2f35; --text: #e8e9eb; --dim: #8a8d93; --accent: #10b981; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 16px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); touch-action: manipulation; }
+  button { font: inherit; color: inherit; background: var(--key); border: 0; border-radius: 18px;
+    display: grid; place-items: center; cursor: pointer; touch-action: manipulation; }
+  button.on { background: var(--key-on); }
+  svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+
+  .pad { position: relative; width: min(78vw, 300px); aspect-ratio: 1; border-radius: 50%; background: var(--key); }
+  .pad button { position: absolute; background: transparent; border-radius: 50%; }
+  .pad button.on { background: var(--key-on); }
+  .pad .up    { top: 0; left: 30%; width: 40%; height: 30%; }
+  .pad .down  { bottom: 0; left: 30%; width: 40%; height: 30%; }
+  .pad .left  { left: 0; top: 30%; width: 30%; height: 40%; }
+  .pad .right { right: 0; top: 30%; width: 30%; height: 40%; }
+  .pad .ok    { top: 30%; left: 30%; width: 40%; height: 40%; background: var(--bg); font-weight: 600; letter-spacing: .04em; }
+  .pad .ok.on { background: var(--accent); color: var(--bg); }
+
+  .row { display: flex; gap: 14px; width: min(78vw, 300px); }
+  .row button { flex: 1; height: 62px; }
+
+  #toast { position: fixed; bottom: max(24px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
+    background: var(--key-on); color: var(--text); padding: 10px 16px; border-radius: 12px; font-size: 14px;
+    opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+
+  .credit { font-size: 12px; color: var(--dim); text-decoration: none; opacity: .7; }
+
+  #lock { position: fixed; inset: 0; background: var(--bg); display: none; flex-direction: column;
+    align-items: center; justify-content: center; gap: 16px; padding: 16px; }
+  #lock.show { display: flex; }
+  #lock p { margin: 0; color: var(--dim); }
+  #lock input { width: min(70vw, 240px); padding: 14px; font-size: 24px; font-weight: 600; text-align: center; letter-spacing: .3em;
+    color: var(--text); background: var(--key); border: 2px solid var(--key-on); border-radius: 14px; outline: none; -webkit-user-select: text; user-select: text; }
+  #lock input:focus { border-color: var(--accent); }
+  #lock button { width: min(70vw, 240px); height: 52px; background: var(--accent); color: var(--bg); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="pad">
+  <button class="up" data-k="up" data-repeat aria-label="Up"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+  <button class="left" data-k="left" data-repeat aria-label="Left"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+  <button class="ok" data-k="ok" aria-label="OK">OK</button>
+  <button class="right" data-k="right" data-repeat aria-label="Right"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+  <button class="down" data-k="down" data-repeat aria-label="Down"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+</div>
+
+<div class="row">
+  <button data-k="back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+  <button data-k="home" aria-label="Home"><svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9v11h14V9"/></svg></button>
+  <button data-k="playpause" aria-label="Play/Pause"><svg viewBox="0 0 24 24"><path d="M6 5v14l8-7z"/><path d="M17 5v14"/><path d="M20 5v14"/></svg></button>
+</div>
+
+<div class="row">
+  <button data-k="voldown" data-repeat aria-label="Volume down"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 12h4"/></svg></button>
+  <button data-k="mute" aria-label="Mute"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9l4 6M21 9l-4 6"/></svg></button>
+  <button data-k="volup" data-repeat aria-label="Volume up"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 12h4M19 10v4"/></svg></button>
+</div>
+
+<a class="credit" href="https://github.com/Will0wn" target="_blank" rel="noopener">Crafted by Will0wn</a>
+
+<div id="toast"></div>
+
+<form id="lock">
+  <p>Remote PIN</p>
+  <input id="pin" type="password" inputmode="numeric" autocomplete="off">
+  <button type="submit">Enter</button>
+</form>
+
+<script>
+  let pin = '';
+  try { pin = localStorage.getItem('wsaPin') || ''; } catch (e) {}
+
+  const toastEl = document.getElementById('toast');
+  let toastTimer;
+  function toast(text) {
+    toastEl.textContent = text;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1800);
+  }
+
+  const lock = document.getElementById('lock'), pinInput = document.getElementById('pin');
+  function askPin() { lock.classList.add('show'); pinInput.value = ''; pinInput.focus(); }
+
+  async function send(key) {
+    try {
+      const r = await fetch('/k?c=' + key + '&p=' + encodeURIComponent(pin), { cache: 'no-store' });
+      if (r.status === 403) { askPin(); return false; }
+      const text = await r.text();
+      if (text !== 'ok') toast(text);
+      return true;
+    } catch (e) { toast('WSA not reachable'); return false; }
+  }
+
+  lock.addEventListener('submit', async e => {
+    e.preventDefault();
+    pin = pinInput.value.trim();
+    if (await send('ping')) {
+      try { localStorage.setItem('wsaPin', pin); } catch (e) {}
+      lock.classList.remove('show');
+    } else toast('Wrong PIN');
+  });
+
+  // Tap = one key press; holding arrows and volume repeats them
+  document.querySelectorAll('button[data-k]').forEach(b => {
+    let delay, repeat;
+    const stop = () => { b.classList.remove('on'); clearTimeout(delay); clearInterval(repeat); };
+    b.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      b.classList.add('on');
+      send(b.dataset.k);
+      if (b.hasAttribute('data-repeat'))
+        delay = setTimeout(() => { repeat = setInterval(() => send(b.dataset.k), 130); }, 400);
+    });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => b.addEventListener(ev, stop));
+    b.addEventListener('contextmenu', e => e.preventDefault());
+  });
+
+  send('ping');
+</script>
+</body>
+</html>

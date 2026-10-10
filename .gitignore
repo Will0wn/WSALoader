@@ -1,0 +1,8 @@
+# toolchain (extracted locally, not versioned)
+/zig-x86_64-windows-*/
+
+# build output
+/installer/Output/
+/Custom/**/*.dll
+*.lib
+*.pdb
