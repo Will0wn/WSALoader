@@ -10,7 +10,7 @@ something you can use from the couch:
 
 Mods run inside `WsaClient.exe`: no extra process, no background service, nothing patched on disk.
 
-<img src="docs/remote.png" alt="WSASmartTV phone remote" width="260">
+<img src="docs/remote-20261011-0139.png" alt="WSASmartTV phone remote" width="260">
 
 > Not affiliated with Microsoft. WSA is no longer distributed through the Microsoft Store (March 2025):
 > WSALoader is meant for existing installs and community builds such as WSABuilds.
