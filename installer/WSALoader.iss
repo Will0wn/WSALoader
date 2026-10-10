@@ -1,6 +1,6 @@
 ; WSALoader setup (Inno Setup 7)
 ; Crafted by Will0wn - https://github.com/Will0wn
-#define AppVer "0.1.0"
+#define AppVer "0.1.1"
 #define Src "..\Custom"
 
 [Setup]

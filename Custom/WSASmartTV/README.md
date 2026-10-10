@@ -70,8 +70,10 @@ Hooks in the **delay-load** import table of `WsaClient.exe` (the .exe is not pat
     through with the rules WSA creates for `WsaClient.exe`.
   - Every key is a `GET /k?c=<key>&p=<PIN>` request; a wrong PIN -> `403` after 1 s (slows down
     guessing).
-  - Arrows, OK (`Enter`), Back (`Esc`), Play/Pause -> `WM_KEYDOWN`/`WM_KEYUP` to the foreground app
+  - Arrows, OK (`Enter`), Play/Pause -> `WM_KEYDOWN`/`WM_KEYUP` to the foreground app
     window (or the topmost open one).
+  - Back -> `Alt+Left` (WSA's Back), sent synchronously while a `GetKeyState` hook reports Alt as
+    pressed.
   - Volume and mute -> system keys (`SendInput`): they change the Windows volume.
   - Home -> `WsaClient.exe /launch wsa://<RemoteHome>`, like the Start menu shortcuts.
 

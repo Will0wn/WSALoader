@@ -6,7 +6,6 @@
 // Crafted by Will0wn - https://github.com/Will0wn
 #include <winsock2.h>
 #include <windows.h>
-#include <xinput.h>
 #include <stdio.h>
 
 static int g_dpi;          // 0 = leave the scale alone
@@ -108,66 +107,31 @@ static void *patch_delay(HMODULE mod, const char *dll, const char *fn, WORD ord,
     return NULL;
 }
 
-// ---- Virtual gamepad ----
-// Android TV players confirm a seek with DPAD_CENTER, not ENTER. Android maps the gamepad button A
-// to DPAD_CENTER (fallback in Generic.kcm), and WsaClient reads Xbox controllers through XInput:
-// the remote OK key presses A on a virtual controller in slot PAD_SLOT, "connected" on first use.
-
-#define PAD_SLOT 3
-
-typedef DWORD (WINAPI *XInputGetState_t)(DWORD, XINPUT_STATE *);
-typedef DWORD (WINAPI *XInputGetCapabilities_t)(DWORD, DWORD, XINPUT_CAPABILITIES *);
-static XInputGetState_t real_XInputGetState;
-static XInputGetCapabilities_t real_XInputGetCapabilities;
-static volatile LONG g_pad_connected;
-static volatile WORD g_pad_buttons;
-static volatile DWORD g_pad_packet;
-static volatile ULONGLONG g_pad_polled;     // last time WsaClient asked for PAD_SLOT
-static BOOL g_pad_hooked;                   // both XInput hooks installed
-
-static DWORD WINAPI my_XInputGetState(DWORD slot, XINPUT_STATE *s)
-{
-    if (slot != PAD_SLOT) return real_XInputGetState(slot, s);
-    if (!g_pad_polled) logf("gamepad: WsaClient polls XInput");
-    g_pad_polled = GetTickCount64();
-    if (!g_pad_connected) return real_XInputGetState(slot, s);
-    ZeroMemory(s, sizeof *s);
-    s->dwPacketNumber = g_pad_packet;
-    s->Gamepad.wButtons = g_pad_buttons;
-    return ERROR_SUCCESS;
-}
-
-static DWORD WINAPI my_XInputGetCapabilities(DWORD slot, DWORD flags, XINPUT_CAPABILITIES *c)
-{
-    if (slot != PAD_SLOT || !g_pad_connected) return real_XInputGetCapabilities(slot, flags, c);
-    ZeroMemory(c, sizeof *c);
-    c->Type = XINPUT_DEVTYPE_GAMEPAD;
-    c->SubType = XINPUT_DEVSUBTYPE_GAMEPAD;
-    c->Gamepad.wButtons = 0xF3FF;
-    return ERROR_SUCCESS;
-}
-
-// TRUE if WsaClient is polling XInput (otherwise the pad would never be seen)
-static BOOL pad_available(void)
-{
-    return g_pad_hooked && g_pad_polled && GetTickCount64() - g_pad_polled < 5000;
-}
-
-static void pad_press(WORD button)
-{
-    if (!g_pad_connected) {
-        InterlockedExchange(&g_pad_connected, 1);
-        logf("gamepad: virtual controller connected in slot %d", PAD_SLOT);
-        Sleep(1500);   // time for WsaClient to see it and announce it to Android
-    }
-    g_pad_buttons = button;
-    g_pad_packet++;
-    Sleep(120);
-    g_pad_buttons = 0;
-    g_pad_packet++;
-}
-
 // ---- Remote ----
+
+// WSA's Back is Alt+Left. WsaClient reads the Alt state with GetKeyState: while the remote sends
+// Back, the hook reports Alt as pressed, and the messages are sent synchronously.
+typedef SHORT (WINAPI *GetKeyState_t)(int);
+static GetKeyState_t real_GetKeyState;
+static volatile LONG g_fake_alt;
+
+static SHORT WINAPI my_GetKeyState(int vk)
+{
+    if (g_fake_alt && (vk == VK_MENU || vk == VK_LMENU)) return (SHORT)0x8000;
+    return real_GetKeyState(vk);
+}
+
+static void send_alt_left(HWND h)
+{
+    const LPARAM alt = 1 | (0x38 << 16) | (1 << 29), left = 1 | (0x4B << 16) | (1 << 24) | (1 << 29);
+    DWORD_PTR r;
+    InterlockedExchange(&g_fake_alt, 1);
+    SendMessageTimeoutW(h, WM_SYSKEYDOWN, VK_MENU, alt, SMTO_ABORTIFHUNG, 1000, &r);
+    SendMessageTimeoutW(h, WM_SYSKEYDOWN, VK_LEFT, left, SMTO_ABORTIFHUNG, 1000, &r);
+    SendMessageTimeoutW(h, WM_SYSKEYUP, VK_LEFT, left | 0xC0000000, SMTO_ABORTIFHUNG, 1000, &r);
+    InterlockedExchange(&g_fake_alt, 0);
+    SendMessageTimeoutW(h, WM_KEYUP, VK_MENU, (alt & ~(1 << 29)) | 0xC0000000, SMTO_ABORTIFHUNG, 1000, &r);
+}
 
 // Window of an Android app in this process (the class is the package name), splash excluded
 static BOOL is_app_window(HWND h)
@@ -244,12 +208,12 @@ static const char *do_key(const char *c)
     static const struct { const char *name; UINT vk, sc; BOOL ext; } keys[] = {
         { "up", VK_UP, 0x48, TRUE },       { "down", VK_DOWN, 0x50, TRUE },
         { "left", VK_LEFT, 0x4B, TRUE },   { "right", VK_RIGHT, 0x4D, TRUE },
-        { "ok", VK_RETURN, 0x1C, FALSE },  { "back", VK_ESCAPE, 0x01, FALSE },
+        { "ok", VK_RETURN, 0x1C, FALSE },
         { "playpause", VK_MEDIA_PLAY_PAUSE, 0x22, TRUE },
     };
     if (!strcmp(c, "ping")) return "ok";
-    if (!strcmp(c, "ok") && pad_available()) { pad_press(XINPUT_GAMEPAD_A); return "ok"; }
     if (!strcmp(c, "home")) { launch_home(); return "ok"; }
+    if (!strcmp(c, "back")) { HWND h = target_window(); if (!h) return "no app open"; send_alt_left(h); return "ok"; }
     if (!strcmp(c, "volup")) { system_key(VK_VOLUME_UP); return "ok"; }
     if (!strcmp(c, "voldown")) { system_key(VK_VOLUME_DOWN); return "ok"; }
     if (!strcmp(c, "mute")) { system_key(VK_VOLUME_MUTE); return "ok"; }
@@ -384,26 +348,15 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, LPVOID reserved)
     real_GetDpiForWindow = (GetDpiForWindow_t)GetProcAddress(user32, "GetDpiForWindow");
     real_ShowWindow = (ShowWindow_t)GetProcAddress(user32, "ShowWindow");
     real_GetDpiForMonitor = (GetDpiForMonitor_t)GetProcAddress(shcore, "GetDpiForMonitor");
+    real_GetKeyState = (GetKeyState_t)GetProcAddress(user32, "GetKeyState");
 
     HMODULE exe = GetModuleHandleW(NULL);
     void *a = patch_delay(exe, "USER32.dll", "GetDpiForWindow", 0, my_GetDpiForWindow);
     void *b = patch_delay(exe, "api-ms-win-shcore-scaling-l1-1-1.dll", "GetDpiForMonitor", 0, my_GetDpiForMonitor);
     void *c = patch_delay(exe, "USER32.dll", "ShowWindow", 0, my_ShowWindow);
+    void *k = patch_delay(exe, "USER32.dll", "GetKeyState", 0, my_GetKeyState);
 
-    // virtual gamepad for the remote OK key: XInputGetState = ordinal 2, XInputGetCapabilities = 4
-    if (g_port) {
-        HMODULE xinput = LoadLibraryW(L"xinput1_4.dll");
-        real_XInputGetState = (XInputGetState_t)GetProcAddress(xinput, (LPCSTR)2);
-        real_XInputGetCapabilities = (XInputGetCapabilities_t)GetProcAddress(xinput, (LPCSTR)4);
-        // both hooks or none: the pad is used only if WsaClient sees both functions replaced
-        if (real_XInputGetState && real_XInputGetCapabilities) {
-            void *s = patch_delay(exe, "XINPUT1_4.dll", NULL, 2, my_XInputGetState);
-            void *k = patch_delay(exe, "XINPUT1_4.dll", NULL, 4, my_XInputGetCapabilities);
-            g_pad_hooked = s && k;
-        }
-        logf("gamepad hook: %d", g_pad_hooked);
-    }
-    logf("loaded: density=%d dpi=%d fullscreen=%d hook dpiWin=%d dpiMon=%d show=%d",
-         density, g_dpi, g_fullscreen, a != NULL, b != NULL, c != NULL);
+    logf("loaded: density=%d dpi=%d fullscreen=%d hook dpiWin=%d dpiMon=%d show=%d keyState=%d",
+         density, g_dpi, g_fullscreen, a != NULL, b != NULL, c != NULL, k != NULL);
     return TRUE;
 }
