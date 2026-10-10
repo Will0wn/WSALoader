@@ -5,7 +5,7 @@ something you can use from the couch:
 
 - **Android UI scale** for every app, applied each time WSA starts
 - **Fullscreen apps**, every Android app opens in fullscreen
-- **Phone remote**, a web page on your home network with a TV remote layout and a PIN
+- **Phone remote**, a web page on your home network with a TV remote layout, a PIN and a power button
 
 Mods run inside `WsaClient.exe`: no extra process, no background service, nothing patched on disk.
 
@@ -16,7 +16,7 @@ Mods run inside `WsaClient.exe`: no extra process, no background service, nothin
 
 ## Status
 
-Early release (0.1.1). Tested on Windows 11 with:
+Early release (0.2.0). Tested on Windows 11 with:
 
 - Projectivy Launcher
 - Crunchyroll
@@ -34,10 +34,6 @@ The setup replaces `gfxstream_backend.dll` only after the loader has passed a lo
 WSA folder. If the test fails, WSA is left untouched.
 
 Uninstall from **Settings > Apps > WSALoader**: the original DLL is put back.
-
-## To test
-
-- Remote OK key on the Crunchyroll seek bar (choosing a frame and confirming).
 
 ## How it works
 

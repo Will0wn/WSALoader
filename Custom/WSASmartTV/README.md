@@ -40,7 +40,9 @@ While WSA is running, open **`http://<PC IP>:8580`** (port = `RemotePort`) in th
 enter the PIN the first time (the browser remembers it) and add the page to the Home Screen: it opens
 like an app. No app to download, no ADB.
 
-Keys: arrows and OK, Back, Home, Play/Pause, volume −/mute/+. Holding arrows and volume repeats them.
+Keys: arrows and OK, Back, Home, volume down/mute/up. Holding arrows and volume repeats them. The power
+button (top right) turns WSA off after a confirmation: the remote stops with it, until WSA is
+started again on the PC.
 The page is `remote.html`: it can be edited without recompiling.
 
 The page exists only while WSA is running (after an Android app has been opened).
@@ -70,12 +72,17 @@ Hooks in the **delay-load** import table of `WsaClient.exe` (the .exe is not pat
     through with the rules WSA creates for `WsaClient.exe`.
   - Every key is a `GET /k?c=<key>&p=<PIN>` request; a wrong PIN -> `403` after 1 s (slows down
     guessing).
-  - Arrows, OK (`Enter`), Play/Pause -> `WM_KEYDOWN`/`WM_KEYUP` to the foreground app
-    window (or the topmost open one).
+  - Arrows -> `WM_KEYDOWN`/`WM_KEYUP` to the foreground app window (or the topmost open one).
+  - OK -> button A of a virtual Xbox controller. WSA forwards XInput controllers to Android's
+    `virtual_gamepad`, where A falls back to `DPAD_CENTER` (`Generic.kcm`): the confirm key that
+    Android TV players expect (e.g. Crunchyroll's seek bar). No WSA keyboard key produces it
+    (`virtual_keyboard.kl`). The mod hooks `XInputGetState` / `XInputGetCapabilities`, reports a
+    controller in slot 3 and holds A until WsaClient has read it (it polls every few ms).
   - Back -> `Alt+Left` (WSA's Back), sent synchronously while a `GetKeyState` hook reports Alt as
     pressed.
   - Volume and mute -> system keys (`SendInput`): they change the Windows volume.
   - Home -> `WsaClient.exe /launch wsa://<RemoteHome>`, like the Start menu shortcuts.
+  - Power -> `WsaClient.exe /shutdown`, half a second after answering the page.
 
 Log: `%TEMP%\WSASmartTV.log` (`loaded: ...`, `new window ...`, `F11 sent ...`,
 `remote listening ...`).
@@ -96,8 +103,6 @@ Source: `src\WSASmartTV\wsasmarttv.c`.
 ## To be verified
 
 - That with `Density=560` the mouse pointer lands where you click.
-- The remote with WSA's Developer mode off (so far tested only with it on; by design it should not
-  be needed).
 
 ---
 

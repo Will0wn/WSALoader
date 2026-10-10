@@ -39,6 +39,18 @@
     opacity: 0; transition: opacity .2s; pointer-events: none; }
   #toast.show { opacity: 1; }
 
+  .power { position: fixed; top: max(16px, env(safe-area-inset-top)); right: 16px; width: 52px; height: 52px; border-radius: 50%; }
+  .power svg { color: #ef4444; }
+
+  .screen { position: fixed; inset: 0; z-index: 10; background: var(--bg); display: none; flex-direction: column;
+    align-items: center; justify-content: center; gap: 16px; padding: 24px; text-align: center; }
+  .screen.show { display: flex; }
+  .screen p { margin: 0; color: var(--dim); max-width: 300px; }
+  .screen h2 { margin: 0; font-size: 20px; }
+  .screen .actions { display: flex; gap: 12px; width: min(78vw, 300px); }
+  .screen .actions button { flex: 1; height: 52px; }
+  .screen .danger { background: #ef4444; color: #fff; font-weight: 600; }
+
   .credit { font-size: 12px; color: var(--dim); text-decoration: none; opacity: .7; }
 
   #lock { position: fixed; inset: 0; background: var(--bg); display: none; flex-direction: column;
@@ -53,6 +65,22 @@
 </head>
 <body>
 
+<button class="power" id="power" aria-label="Turn off WSA"><svg viewBox="0 0 24 24"><path d="M12 3v9"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg></button>
+
+<div class="screen" id="confirm">
+  <h2>Turn off WSA?</h2>
+  <p>Android apps close and the remote stops working until WSA is started again on the PC.</p>
+  <div class="actions">
+    <button id="cancel">Cancel</button>
+    <button class="danger" id="off">Turn off</button>
+  </div>
+</div>
+
+<div class="screen" id="offscreen">
+  <h2>WSA is off</h2>
+  <p>Start WSA on the PC (open any Android app) to use the remote again, then reload this page.</p>
+</div>
+
 <div class="pad">
   <button class="up" data-k="up" data-repeat aria-label="Up"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
   <button class="left" data-k="left" data-repeat aria-label="Left"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
@@ -64,7 +92,6 @@
 <div class="row">
   <button data-k="back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
   <button data-k="home" aria-label="Home"><svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9v11h14V9"/></svg></button>
-  <button data-k="playpause" aria-label="Play/Pause"><svg viewBox="0 0 24 24"><path d="M6 5v14l8-7z"/><path d="M17 5v14"/><path d="M20 5v14"/></svg></button>
 </div>
 
 <div class="row">
@@ -105,7 +132,7 @@
       if (r.status === 403) { askPin(); return false; }
       const text = await r.text();
       if (text !== 'ok') toast(text);
-      return true;
+      return text === 'ok';
     } catch (e) { toast('WSA not reachable'); return false; }
   }
 
@@ -131,6 +158,14 @@
     });
     ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => b.addEventListener(ev, stop));
     b.addEventListener('contextmenu', e => e.preventDefault());
+  });
+
+  // Power: asks first, then turns WSA off; the remote goes away with it
+  const confirmEl = document.getElementById('confirm'), offEl = document.getElementById('offscreen');
+  document.getElementById('power').addEventListener('click', () => confirmEl.classList.add('show'));
+  document.getElementById('cancel').addEventListener('click', () => confirmEl.classList.remove('show'));
+  document.getElementById('off').addEventListener('click', async () => {
+    if (await send('power')) { confirmEl.classList.remove('show'); offEl.classList.add('show'); }
   });
 
   send('ping');

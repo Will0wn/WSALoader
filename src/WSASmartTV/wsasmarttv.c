@@ -6,6 +6,7 @@
 // Crafted by Will0wn - https://github.com/Will0wn
 #include <winsock2.h>
 #include <windows.h>
+#include <xinput.h>
 #include <stdio.h>
 
 static int g_dpi;          // 0 = leave the scale alone
@@ -179,29 +180,114 @@ static void system_key(WORD vk)
     SendInput(2, in, sizeof(INPUT));
 }
 
-// Home: opens the launcher like the Start menu shortcuts (WsaClient.exe /launch wsa://<package>)
-static void launch_home(void)
+// Runs WsaClient.exe <args> through the WindowsApps alias, which starts it with the package identity
+// (like the Start menu shortcuts; running WsaClient.exe directly fails with 0xc00004bc)
+static BOOL wsa_command(const wchar_t *args)
 {
     typedef LONG (WINAPI *family_t)(UINT32 *, PWSTR);
     family_t family = (family_t)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "GetCurrentPackageFamilyName");
-    wchar_t exe[MAX_PATH], fam[128], cmd[MAX_PATH + 160];
+    wchar_t exe[MAX_PATH], fam[128], cmd[MAX_PATH + 200];
     UINT32 n = 128;
-    // the WindowsApps alias starts WsaClient with the package identity
     if (family && family(&n, fam) == 0 && GetEnvironmentVariableW(L"LOCALAPPDATA", exe, MAX_PATH))
         _snwprintf(exe + lstrlenW(exe), MAX_PATH - lstrlenW(exe), L"\\Microsoft\\WindowsApps\\%ls\\WsaClient.exe", fam);
     else
         GetModuleFileNameW(NULL, exe, MAX_PATH);
-    _snwprintf(cmd, MAX_PATH + 160, L"\"%ls\" /launch wsa://%ls", exe, g_home);
+    _snwprintf(cmd, MAX_PATH + 200, L"\"%ls\" %ls", exe, args);
     STARTUPINFOW si = { sizeof si };
     PROCESS_INFORMATION pi;
-    if (CreateProcessW(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
-    } else {
-        logf("home: launching %ls failed (%lu)", g_home, GetLastError());
-    }
+    if (!CreateProcessW(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) return FALSE;
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return TRUE;
 }
 
+// Home: opens the launcher (WsaClient.exe /launch wsa://<package>)
+static void launch_home(void)
+{
+    wchar_t args[160];
+    _snwprintf(args, 160, L"/launch wsa://%ls", g_home);
+    if (!wsa_command(args)) logf("home: launching %ls failed (%lu)", g_home, GetLastError());
+}
+
+// Power: turns WSA off a moment after the page got its answer (the remote stops with it)
+static DWORD WINAPI power_off(LPVOID unused)
+{
+    Sleep(500);
+    logf("remote: turning WSA off");
+    if (!wsa_command(L"/shutdown")) logf("remote: shutdown failed (%lu)", GetLastError());
+    return 0;
+}
+// ---- Virtual gamepad ----
+// WSA forwards Xbox controllers (XInput) to Android's virtual_gamepad, where button A falls back to
+// DPAD_CENTER (Generic.kcm): the confirm key of Android TV players. While the remote is on, slot
+// PAD_SLOT reports a connected controller, and the OK key presses its A button. No network involved.
+
+#define PAD_SLOT 3
+
+typedef DWORD (WINAPI *XInputGetState_t)(DWORD, XINPUT_STATE *);
+typedef DWORD (WINAPI *XInputGetCapabilities_t)(DWORD, DWORD, XINPUT_CAPABILITIES *);
+static XInputGetState_t real_XInputGetState;
+static XInputGetCapabilities_t real_XInputGetCapabilities;
+static BOOL g_pad_on;
+static volatile WORD g_pad_buttons;
+static volatile DWORD g_pad_packet;
+static volatile ULONGLONG g_pad_polled;    // last time WsaClient read PAD_SLOT
+static volatile LONG g_seen_state, g_seen_caps;
+static volatile LONG g_pad_reads;         // reads of PAD_SLOT, to know when a press has been seen
+
+static DWORD WINAPI my_XInputGetState(DWORD slot, XINPUT_STATE *s)
+{
+    if (slot < 4 && !(InterlockedOr(&g_seen_state, 1 << slot) & 1 << slot)) logf("xinput: GetState slot %lu", slot);
+    if (slot != PAD_SLOT || !g_pad_on) return real_XInputGetState(slot, s);
+    static ULONGLONG first; static int polls;   // measures how often WsaClient reads the pad
+    if (!first) first = GetTickCount64();
+    if (++polls == 200) logf("xinput: slot %d read every %llu ms", PAD_SLOT, (GetTickCount64() - first) / 199);
+    g_pad_polled = GetTickCount64();
+    ZeroMemory(s, sizeof *s);
+    s->dwPacketNumber = g_pad_packet;
+    s->Gamepad.wButtons = g_pad_buttons;
+    InterlockedIncrement(&g_pad_reads);
+    return ERROR_SUCCESS;
+}
+
+static DWORD WINAPI my_XInputGetCapabilities(DWORD slot, DWORD flags, XINPUT_CAPABILITIES *c)
+{
+    if (slot < 4 && !(InterlockedOr(&g_seen_caps, 1 << slot) & 1 << slot)) logf("xinput: GetCapabilities slot %lu", slot);
+    if (slot != PAD_SLOT || !g_pad_on) return real_XInputGetCapabilities(slot, flags, c);
+    ZeroMemory(c, sizeof *c);
+    c->Type = XINPUT_DEVTYPE_GAMEPAD;
+    c->SubType = XINPUT_DEVSUBTYPE_GAMEPAD;
+    c->Gamepad.wButtons = 0xF3FF;
+    return ERROR_SUCCESS;
+}
+
+// Waits until WsaClient has read the pad at least twice (so one read saw the current state)
+static BOOL pad_wait_reads(void)
+{
+    LONG start = g_pad_reads;
+    ULONGLONG t0 = GetTickCount64();
+    while (g_pad_reads - start < 2) {
+        if (GetTickCount64() - t0 > 500) return FALSE;
+        Sleep(1);
+    }
+    return TRUE;
+}
+
+// Presses a gamepad button: held until WsaClient has read it, then released the same way
+static BOOL pad_press(WORD button)
+{
+    if (!g_pad_on) return FALSE;
+    ULONGLONG t0 = GetTickCount64();
+    g_pad_buttons = button;
+    g_pad_packet++;
+    BOOL down = pad_wait_reads();
+    Sleep(20);
+    g_pad_buttons = 0;
+    g_pad_packet++;
+    BOOL up = pad_wait_reads();
+    logf("ok: A %s, release %s (%llu ms)", down ? "read" : "NOT read", up ? "read" : "NOT read", GetTickCount64() - t0);
+    return TRUE;
+}
 // Runs a key; returns the text for the page, NULL if the key does not exist
 static const char *do_key(const char *c)
 {
@@ -212,7 +298,9 @@ static const char *do_key(const char *c)
         { "playpause", VK_MEDIA_PLAY_PAUSE, 0x22, TRUE },
     };
     if (!strcmp(c, "ping")) return "ok";
+    if (!strcmp(c, "ok") && pad_press(XINPUT_GAMEPAD_A)) return "ok";   // otherwise Enter, below
     if (!strcmp(c, "home")) { launch_home(); return "ok"; }
+    if (!strcmp(c, "power")) { CloseHandle(CreateThread(NULL, 0, power_off, NULL, 0, NULL)); return "ok"; }
     if (!strcmp(c, "back")) { HWND h = target_window(); if (!h) return "no app open"; send_alt_left(h); return "ok"; }
     if (!strcmp(c, "volup")) { system_key(VK_VOLUME_UP); return "ok"; }
     if (!strcmp(c, "voldown")) { system_key(VK_VOLUME_DOWN); return "ok"; }
@@ -356,6 +444,18 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, LPVOID reserved)
     void *c = patch_delay(exe, "USER32.dll", "ShowWindow", 0, my_ShowWindow);
     void *k = patch_delay(exe, "USER32.dll", "GetKeyState", 0, my_GetKeyState);
 
+    // virtual gamepad for the remote OK key: XInputGetState = ordinal 2, XInputGetCapabilities = 4
+    if (g_port) {
+        HMODULE xinput = LoadLibraryW(L"xinput1_4.dll");
+        real_XInputGetState = (XInputGetState_t)GetProcAddress(xinput, (LPCSTR)2);
+        real_XInputGetCapabilities = (XInputGetCapabilities_t)GetProcAddress(xinput, (LPCSTR)4);
+        if (real_XInputGetState && real_XInputGetCapabilities) {
+            void *gs = patch_delay(exe, "XINPUT1_4.dll", NULL, 2, my_XInputGetState);
+            void *gc = patch_delay(exe, "XINPUT1_4.dll", NULL, 4, my_XInputGetCapabilities);
+            g_pad_on = gs && gc;
+        }
+        logf("virtual gamepad: %d", g_pad_on);
+    }
     logf("loaded: density=%d dpi=%d fullscreen=%d hook dpiWin=%d dpiMon=%d show=%d keyState=%d",
          density, g_dpi, g_fullscreen, a != NULL, b != NULL, c != NULL, k != NULL);
     return TRUE;
