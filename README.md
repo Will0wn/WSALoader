@@ -17,10 +17,21 @@ Mods run inside `WsaClient.exe`: no extra process, no background service, nothin
 
 ## Status
 
-Early release (0.3.0). Tested on Windows 11 with:
+Early release (0.3.1). Tested on Windows 11 with:
 
 - Projectivy Launcher
 - Crunchyroll
+
+## Quick start
+
+1. **Install WSA.** Microsoft no longer distributes it: use a community build such as
+   [WSABuilds](https://github.com/MustardChef/WSABuilds).
+2. **Install [WSA PacMan](https://github.com/alesimula/wsa_pacman)**, to install Android apps (APK
+   files) with a double click.
+3. **Install an Android TV launcher.** It is the Home screen of your TV setup and the place to open
+   Android TV-only apps. Set its package name as `RemoteHome` in `Custom\WSASmartTV\config.ini`.
+4. **Install WSALoader with WSASmartTV** (below) and keep the desktop shortcut option: with a launcher
+   already installed, the shortcut starts WSA straight into it.
 
 ## Install
 

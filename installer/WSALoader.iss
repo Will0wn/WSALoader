@@ -1,6 +1,6 @@
 ; WSALoader setup (Inno Setup 7)
 ; Crafted by Will0wn - https://github.com/Will0wn
-#define AppVer "0.3.0"
+#define AppVer "0.3.1"
 #define Src "..\Custom"
 
 [Setup]
@@ -52,10 +52,12 @@ Name: "desktopicon"; Description: "Create a desktop shortcut that starts WSA (op
 
 [Icons]
 ; the WindowsApps alias starts WsaClient with its package identity, like the Start menu shortcuts
-Name: "{userdesktop}\WSA"; Filename: "{localappdata}\Microsoft\WindowsApps\MicrosoftCorporationII.WindowsSubsystemForAndroid_8wekyb3d8bbwe\WsaClient.exe"; Parameters: "/launch wsa://{code:HomePackage}"; IconFilename: "{app}\WsaClient\WsaClient.exe"; Comment: "Start Windows Subsystem for Android"; Tasks: desktopicon
+Name: "{userdesktop}\Android TV"; Filename: "{localappdata}\Microsoft\WindowsApps\MicrosoftCorporationII.WindowsSubsystemForAndroid_8wekyb3d8bbwe\WsaClient.exe"; Parameters: "/launch wsa://{code:HomePackage}"; IconFilename: "{app}\WsaClient\WsaClient.exe"; Comment: "Start Windows Subsystem for Android"; Tasks: desktopicon
 
 [InstallDelete]
 ; files of the old layout (everything directly in Custom)
+; desktop shortcut of 0.3.0, renamed "Android TV"
+Type: files; Name: "{userdesktop}\WSA.lnk"
 Type: files; Name: "{app}\Custom\WsaAddon.dll"
 Type: files; Name: "{app}\Custom\gfxstream_proxy.dll"
 Type: files; Name: "{app}\Custom\install.ps1"
