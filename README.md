@@ -70,7 +70,3 @@ pwsh -NoProfile -File tools\build.ps1
 ```
 
 It builds the DLLs into `Custom\` and the setup into `installer\Output\`.
-
----
-
-Crafted by [Will0wn](https://github.com/Will0wn)
