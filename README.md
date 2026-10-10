@@ -17,7 +17,7 @@ Mods run inside `WsaClient.exe`: no extra process, no background service, nothin
 
 ## Status
 
-Early release (0.3.1). Tested on Windows 11 with:
+Early release (0.3.2). Tested on Windows 11 with:
 
 - Projectivy Launcher
 - Crunchyroll

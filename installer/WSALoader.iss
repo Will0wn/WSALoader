@@ -1,6 +1,6 @@
 ; WSALoader setup (Inno Setup 7)
 ; Crafted by Will0wn - https://github.com/Will0wn
-#define AppVer "0.3.1"
+#define AppVer "0.3.2"
 #define Src "..\Custom"
 
 [Setup]
@@ -52,7 +52,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut that starts WSA (op
 
 [Icons]
 ; the WindowsApps alias starts WsaClient with its package identity, like the Start menu shortcuts
-Name: "{userdesktop}\Android TV"; Filename: "{localappdata}\Microsoft\WindowsApps\MicrosoftCorporationII.WindowsSubsystemForAndroid_8wekyb3d8bbwe\WsaClient.exe"; Parameters: "/launch wsa://{code:HomePackage}"; IconFilename: "{app}\WsaClient\WsaClient.exe"; Comment: "Start Windows Subsystem for Android"; Tasks: desktopicon
+Name: "{userdesktop}\Android TV"; Filename: "{localappdata}\Microsoft\WindowsApps\MicrosoftCorporationII.WindowsSubsystemForAndroid_8wekyb3d8bbwe\WsaClient.exe"; Parameters: "/launch wsa://{code:HomePackage}"; IconFilename: "{app}\Custom\WSALoader\AndroidTV.ico"; Comment: "Start Windows Subsystem for Android"; Tasks: desktopicon
 
 [InstallDelete]
 ; files of the old layout (everything directly in Custom)
@@ -78,6 +78,7 @@ Source: "{#Src}\WSALoader\WSALoader.dll"; DestDir: "{app}\Custom\WSALoader"; Com
 Source: "{#Src}\WSALoader\install.ps1"; DestDir: "{app}\Custom\WSALoader"; Components: loader; Flags: ignoreversion
 Source: "{#Src}\WSALoader\uninstall.ps1"; DestDir: "{app}\Custom\WSALoader"; Components: loader; Flags: ignoreversion
 Source: "{#Src}\WSALoader\README.md"; DestDir: "{app}\Custom\WSALoader"; Components: loader; Flags: ignoreversion
+Source: "{#Src}\WSALoader\AndroidTV.ico"; DestDir: "{app}\Custom\WSALoader"; Components: loader; Flags: ignoreversion
 Source: "{#Src}\WSASmartTV\WSASmartTV.dll"; DestDir: "{app}\Custom\WSASmartTV"; Components: smarttv; Flags: ignoreversion
 Source: "{#Src}\WSASmartTV\remote.html"; DestDir: "{app}\Custom\WSASmartTV"; Components: smarttv; Flags: ignoreversion
 Source: "{#Src}\WSASmartTV\README.md"; DestDir: "{app}\Custom\WSASmartTV"; Components: smarttv; Flags: ignoreversion
