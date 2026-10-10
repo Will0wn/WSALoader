@@ -1,6 +1,6 @@
 ; WSALoader setup (Inno Setup 7)
 ; Crafted by Will0wn - https://github.com/Will0wn
-#define AppVer "0.2.0"
+#define AppVer "0.3.0"
 #define Src "..\Custom"
 
 [Setup]
@@ -46,6 +46,13 @@ Name: "custom"; Description: "Custom"; Flags: iscustom
 [Components]
 Name: "loader"; Description: "WSALoader (required)"; Types: full custom; Flags: fixed
 Name: "smarttv"; Description: "WSASmartTV - Android scale, fullscreen apps, phone remote"; Types: full
+
+[Tasks]
+Name: "desktopicon"; Description: "Create a desktop shortcut that starts WSA (opens the Home launcher)"; GroupDescription: "Shortcuts:"
+
+[Icons]
+; the WindowsApps alias starts WsaClient with its package identity, like the Start menu shortcuts
+Name: "{userdesktop}\WSA"; Filename: "{localappdata}\Microsoft\WindowsApps\MicrosoftCorporationII.WindowsSubsystemForAndroid_8wekyb3d8bbwe\WsaClient.exe"; Parameters: "/launch wsa://{code:HomePackage}"; IconFilename: "{app}\WsaClient\WsaClient.exe"; Comment: "Start Windows Subsystem for Android"; Tasks: desktopicon
 
 [InstallDelete]
 ; files of the old layout (everything directly in Custom)
@@ -231,6 +238,13 @@ begin
   Result := '';
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM WsaClient.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Sleep(1000);
+end;
+
+// launcher opened by the desktop shortcut: RemoteHome of WSASmartTV, Projectivy otherwise
+function HomePackage(Param: String): String;
+begin
+  Result := GetIniString('WSASmartTV', 'RemoteHome', 'com.spocky.projengmenu',
+    ExpandConstant('{app}\Custom\WSASmartTV\config.ini'));
 end;
 
 procedure SaveSettings;

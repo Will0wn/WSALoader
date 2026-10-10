@@ -294,12 +294,21 @@ static const char *do_key(const char *c)
     static const struct { const char *name; UINT vk, sc; BOOL ext; } keys[] = {
         { "up", VK_UP, 0x48, TRUE },       { "down", VK_DOWN, 0x50, TRUE },
         { "left", VK_LEFT, 0x4B, TRUE },   { "right", VK_RIGHT, 0x4D, TRUE },
-        { "ok", VK_RETURN, 0x1C, FALSE },
+        { "ok", VK_RETURN, 0x1C, FALSE },  { "enter", VK_RETURN, 0x1C, FALSE },
+        { "backspace", VK_BACK, 0x0E, FALSE },
         { "playpause", VK_MEDIA_PLAY_PAUSE, 0x22, TRUE },
     };
     if (!strcmp(c, "ping")) return "ok";
     if (!strcmp(c, "ok") && pad_press(XINPUT_GAMEPAD_A)) return "ok";   // otherwise Enter, below
     if (!strcmp(c, "home")) { launch_home(); return "ok"; }
+    if (!strcmp(c, "close")) {   // like the window X button: WSA ends the app, it restarts from scratch
+        HWND h = target_window();
+        if (!h) return "no app open";
+        PostMessageW(h, WM_CLOSE, 0, 0);   // in fullscreen the window has no system menu: SC_CLOSE may be ignored
+        Sleep(1500);
+        logf("close: window %p %s", (void *)h, IsWindow(h) ? "STILL OPEN" : "closed");
+        return "ok";
+    }
     if (!strcmp(c, "power")) { CloseHandle(CreateThread(NULL, 0, power_off, NULL, 0, NULL)); return "ok"; }
     if (!strcmp(c, "back")) { HWND h = target_window(); if (!h) return "no app open"; send_alt_left(h); return "ok"; }
     if (!strcmp(c, "volup")) { system_key(VK_VOLUME_UP); return "ok"; }
@@ -343,39 +352,146 @@ static void query_param(const char *q, const char *key, char *out, int cap)
     }
 }
 
+static BOOL serve_file(SOCKET s, const wchar_t *path, const char *type)
+{
+    HANDLE f = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    DWORD size = f == INVALID_HANDLE_VALUE ? 0 : GetFileSize(f, NULL), got = 0;
+    char *buf = size && size < (1 << 20) ? HeapAlloc(GetProcessHeap(), 0, size) : NULL;
+    BOOL ok = buf && ReadFile(f, buf, size, &got, NULL) && got == size;
+    if (ok) reply(s, "200 OK", type, buf, (int)size);
+    if (buf) HeapFree(GetProcessHeap(), 0, buf);
+    if (f != INVALID_HANDLE_VALUE) CloseHandle(f);
+    return ok;
+}
+
 // The page is remote.html next to the DLL: it can be edited without recompiling
 static void serve_page(SOCKET s)
 {
     wchar_t path[MAX_PATH];
     _snwprintf(path, MAX_PATH, L"%ls\\remote.html", g_dir);
-    HANDLE f = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
-    DWORD size = f == INVALID_HANDLE_VALUE ? 0 : GetFileSize(f, NULL), got = 0;
-    char *buf = size && size < (1 << 20) ? HeapAlloc(GetProcessHeap(), 0, size) : NULL;
-    if (buf && ReadFile(f, buf, size, &got, NULL) && got == size)
-        reply(s, "200 OK", "text/html; charset=utf-8", buf, (int)size);
-    else
-        reply_text(s, "500 Internal Server Error", "remote.html missing");
-    if (buf) HeapFree(GetProcessHeap(), 0, buf);
-    if (f != INVALID_HANDLE_VALUE) CloseHandle(f);
+    if (!serve_file(s, path, "text/html; charset=utf-8")) reply_text(s, "500 Internal Server Error", "remote.html missing");
+}
+
+// ---- Installed apps ----
+// WSA keeps an icon per installed app in its LocalState folder (<package>.png): the remote shows
+// them in a row and opens the chosen one like the Start menu shortcuts (/launch wsa://<package>).
+
+// %LOCALAPPDATA%\Packages\<package family of WSA>\LocalState
+static BOOL app_folder(wchar_t *dir)
+{
+    typedef LONG (WINAPI *family_t)(UINT32 *, PWSTR);
+    family_t family = (family_t)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "GetCurrentPackageFamilyName");
+    wchar_t fam[128];
+    UINT32 n = 128;
+    if (!family || family(&n, fam) || !GetEnvironmentVariableW(L"LOCALAPPDATA", dir, MAX_PATH)) return FALSE;
+    _snwprintf(dir + lstrlenW(dir), MAX_PATH - lstrlenW(dir), L"\\Packages\\%ls\\LocalState", fam);
+    return TRUE;
+}
+
+// Android package names only: letters, digits, dots, underscores (nothing else reaches a command line)
+static BOOL valid_package(const char *p)
+{
+    int n = 0;
+    for (; p[n]; n++)
+        if (!(p[n] >= 'a' && p[n] <= 'z') && !(p[n] >= 'A' && p[n] <= 'Z') && !(p[n] >= '0' && p[n] <= '9') &&
+            p[n] != '.' && p[n] != '_') return FALSE;
+    return n > 0 && n < 120;
+}
+
+// Icon of an installed package; FALSE if the name is invalid or the app is not installed
+static BOOL app_icon(const char *pkg, wchar_t *path)
+{
+    wchar_t dir[MAX_PATH];
+    if (!valid_package(pkg) || !app_folder(dir)) return FALSE;
+    _snwprintf(path, MAX_PATH, L"%ls\\%hs.png", dir, pkg);
+    return GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES;
+}
+
+// ["com.example.app", ...]
+static void serve_apps(SOCKET s)
+{
+    static char json[16384];
+    wchar_t dir[MAX_PATH], pattern[MAX_PATH];
+    WIN32_FIND_DATAW fd;
+    int n = 0;
+    json[n++] = '[';
+    if (app_folder(dir)) {
+        _snwprintf(pattern, MAX_PATH, L"%ls\\*.png", dir);
+        HANDLE find = FindFirstFileW(pattern, &fd);
+        if (find != INVALID_HANDLE_VALUE) {
+            do {
+                char name[MAX_PATH];
+                WideCharToMultiByte(CP_UTF8, 0, fd.cFileName, -1, name, sizeof name, NULL, NULL);
+                char *dot = strrchr(name, '.');
+                if (dot) *dot = 0;
+                if (!valid_package(name) || n > (int)sizeof json - 200) continue;
+                n += snprintf(json + n, sizeof json - n, "%s\"%s\"", n > 1 ? "," : "", name);
+            } while (FindNextFileW(find, &fd));
+            FindClose(find);
+        }
+    }
+    json[n++] = ']';
+    reply(s, "200 OK", "application/json", json, n);
+}
+// Decodes %XX escapes (encodeURIComponent) in place
+static void url_decode(char *s)
+{
+    char *o = s;
+    for (; *s; s++) {
+        int hi, lo;
+        if (*s == '%' && s[1] && s[2] &&
+            (hi = s[1] <= '9' ? s[1] - '0' : (s[1] | 32) - 'a' + 10) >= 0 && hi < 16 &&
+            (lo = s[2] <= '9' ? s[2] - '0' : (s[2] | 32) - 'a' + 10) >= 0 && lo < 16) {
+            *o++ = (char)(hi << 4 | lo);
+            s += 2;
+        } else *o++ = *s;
+    }
+    *o = 0;
+}
+
+// Keyboard of the remote: types UTF-8 text in the foreground app as characters (WM_CHAR)
+static const char *type_text(const char *utf8)
+{
+    HWND h = target_window();
+    if (!h) return "no app open";
+    wchar_t w[512];
+    int n = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, w, 512);
+    for (int i = 0; i < n - 1; i++) PostMessageW(h, WM_CHAR, w[i], 1);
+    return "ok";
 }
 
 static void handle(SOCKET s, const char *path)
 {
     if (!strcmp(path, "/")) { serve_page(s); return; }
-    if (strncmp(path, "/k?", 3)) { reply_text(s, "404 Not Found", "?"); return; }
-    char c[32], pin[sizeof g_pin];
-    query_param(path + 3, "c", c, sizeof c);
-    query_param(path + 3, "p", pin, sizeof pin);
+    const char *q = strchr(path, '?');
+    int len = q ? (int)(q - path) : 0;
+    BOOL text = len == 2 && !strncmp(path, "/t", 2), key = len == 2 && !strncmp(path, "/k", 2);
+    BOOL apps = len == 5 && !strncmp(path, "/apps", 5), icon = len == 5 && !strncmp(path, "/icon", 5);
+    BOOL open = len == 5 && !strncmp(path, "/open", 5);
+    if (!text && !key && !apps && !icon && !open) { reply_text(s, "404 Not Found", "?"); return; }
+    char c[1024], pin[sizeof g_pin];
+    query_param(q + 1, text ? "s" : key ? "c" : "pkg", c, sizeof c);
+    query_param(q + 1, "p", pin, sizeof pin);
     if (g_pin[0] && strcmp(pin, g_pin)) {
         Sleep(1000);   // slows down PIN guessing
         reply_text(s, "403 Forbidden", "Wrong PIN");
+        return;
+    }
+    if (text) { url_decode(c); reply_text(s, "200 OK", type_text(c)); return; }
+    if (apps) { serve_apps(s); return; }
+    wchar_t ipath[MAX_PATH];
+    if ((icon || open) && !app_icon(c, ipath)) { reply_text(s, "404 Not Found", "app not installed"); return; }
+    if (icon) { if (!serve_file(s, ipath, "image/png")) reply_text(s, "404 Not Found", "?"); return; }
+    if (open) {
+        wchar_t args[160];
+        _snwprintf(args, 160, L"/launch wsa://%hs", c);
+        reply_text(s, "200 OK", wsa_command(args) ? "ok" : "cannot open the app");
         return;
     }
     const char *r = do_key(c);
     if (r) reply_text(s, "200 OK", r);
     else reply_text(s, "400 Bad Request", "unknown key");
 }
-
 static DWORD WINAPI remote_server(LPVOID unused)
 {
     WSADATA w;

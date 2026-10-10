@@ -40,7 +40,11 @@ While WSA is running, open **`http://<PC IP>:8580`** (port = `RemotePort`) in th
 enter the PIN the first time (the browser remembers it) and add the page to the Home Screen: it opens
 like an app. No app to download, no ADB.
 
-Keys: arrows and OK, Back, Home, volume down/mute/up. Holding arrows and volume repeats them. The power
+Keys: arrows and OK, Back, Home, keyboard, volume down/mute/up. Holding arrows and volume repeats them.
+The keyboard button opens a text field: what you type is typed in the Android app (Enter sends
+Enter). The X button (top left) closes the current app like its window X button: WSA ends it, so
+it starts from scratch when opened again. The row at the bottom shows the installed apps: tap one
+to open it (Android TV-only apps do not open from there yet, see the main README). The power
 button (top right) turns WSA off after a confirmation: the remote stops with it, until WSA is
 started again on the PC.
 The page is `remote.html`: it can be edited without recompiling.
@@ -83,6 +87,12 @@ Hooks in the **delay-load** import table of `WsaClient.exe` (the .exe is not pat
   - Volume and mute -> system keys (`SendInput`): they change the Windows volume.
   - Home -> `WsaClient.exe /launch wsa://<RemoteHome>`, like the Start menu shortcuts.
   - Power -> `WsaClient.exe /shutdown`, half a second after answering the page.
+  - Keyboard -> `GET /t?s=<text>&p=<PIN>`: the text is posted as `WM_CHAR` to the app window;
+    Backspace and Enter as keys.
+  - Close app (X) -> `WM_CLOSE` to the app window (`SC_CLOSE` is ignored in fullscreen).
+  - App row -> the icons WSA keeps in its LocalState folder (`<package>.png`); a tap runs
+    `WsaClient.exe /launch wsa://<package>`. Only package names made of letters, digits, dots and
+    underscores, and only installed apps, are accepted.
 
 Log: `%TEMP%\WSASmartTV.log` (`loaded: ...`, `new window ...`, `F11 sent ...`,
 `remote listening ...`).

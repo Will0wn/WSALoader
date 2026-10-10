@@ -5,7 +5,8 @@ something you can use from the couch:
 
 - **Android UI scale** for every app, applied each time WSA starts
 - **Fullscreen apps**, every Android app opens in fullscreen
-- **Phone remote**, a web page on your home network with a TV remote layout, a PIN and a power button
+- **Phone remote**, a web page on your home network with a TV remote layout, a PIN, a keyboard, a row of
+  installed apps, a button to close the current app and a power button
 
 Mods run inside `WsaClient.exe`: no extra process, no background service, nothing patched on disk.
 
@@ -16,7 +17,7 @@ Mods run inside `WsaClient.exe`: no extra process, no background service, nothin
 
 ## Status
 
-Early release (0.2.0). Tested on Windows 11 with:
+Early release (0.3.0). Tested on Windows 11 with:
 
 - Projectivy Launcher
 - Crunchyroll
@@ -34,6 +35,13 @@ The setup replaces `gfxstream_backend.dll` only after the loader has passed a lo
 WSA folder. If the test fails, WSA is left untouched.
 
 Uninstall from **Settings > Apps > WSALoader**: the original DLL is put back.
+
+## Known issues
+
+- **Android TV-only apps do not open from the remote app row** (for example the TV builds of
+  Crunchyroll, Prime Video and Apple TV). WSA opens apps from Windows only through their standard
+  launcher entry, which these apps do not have (it is also why they have no Start menu shortcut).
+  Open them from the Home launcher for now. Not fixed yet.
 
 ## How it works
 
