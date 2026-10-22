@@ -85,3 +85,7 @@ pwsh -NoProfile -File tools\build.ps1
 ```
 
 It builds the DLLs into `Custom\` and the setup into `installer\Output\`.
+
+## License
+
+WSALoader is free software, released under the [GNU General Public License v3.0](LICENSE).
