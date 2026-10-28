@@ -6,7 +6,8 @@ something you can use from the couch:
 - **Android UI scale** for every app, applied each time WSA starts
 - **Fullscreen apps**, every Android app opens in fullscreen
 - **Phone remote**, a web page on your home network with a TV remote layout, a PIN, a keyboard, a row of
-  installed apps, a button to close the current app and a power button
+  installed apps, a button to close the current app and a power button. Served by the PC, or by your
+  own always-on server (external mode: no port opened on the PC)
 
 Mods run inside `WsaClient.exe`: no extra process, no background service, nothing patched on disk.
 
@@ -17,7 +18,7 @@ Mods run inside `WsaClient.exe`: no extra process, no background service, nothin
 
 ## Status
 
-Early release (0.3.2). Tested on Windows 11 with:
+Early release (0.4.0). Tested on Windows 11 with:
 
 - Projectivy Launcher
 - Crunchyroll
@@ -38,9 +39,11 @@ Early release (0.3.2). Tested on Windows 11 with:
 1. Download `WSALoader-Setup-<version>.exe` from the Releases page and run it (administrator rights
    are required).
 2. Pick the WSA folder (default `C:\Program Files\Windows Subsystem for Android`).
-3. Choose the mods and the WSASmartTV settings: UI scale, phone remote on or off, remote PIN.
-4. Open an Android app. For the remote, open `http://<PC IP>:8580` in the phone browser while WSA is
-   running. The setup shows the exact address at the end.
+3. Choose the mods and the WSASmartTV settings: UI scale and phone remote (standalone with a PIN,
+   external with your server address and token, or off).
+4. Open an Android app. For the standalone remote, open `http://<PC IP>:8580` in the phone browser
+   while WSA is running. The setup shows the exact address at the end. For the external remote, see
+   [`Custom/WSASmartTV/README.md`](Custom/WSASmartTV/README.md#external-remote).
 
 The setup replaces `gfxstream_backend.dll` only after the loader has passed a load test inside the
 WSA folder. If the test fails, WSA is left untouched.

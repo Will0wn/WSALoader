@@ -13,7 +13,7 @@ function Build($out, [string[]]$zigArgs) {
 }
 
 Build "$root\Custom\WSALoader\WSALoader.dll" @("$root\src\WSALoader\wsaloader.c", "$root\src\WSALoader\wsaloader.def")
-Build "$root\Custom\WSASmartTV\WSASmartTV.dll" @("$root\src\WSASmartTV\wsasmarttv.c", "-luser32", "-lws2_32")
+Build "$root\Custom\WSASmartTV\WSASmartTV.dll" @("$root\src\WSASmartTV\wsasmarttv.c", "-luser32", "-lws2_32", "-lwinhttp")
 
 # Setup (Inno Setup 7): installer\Output\WSALoader-Setup-<version>.exe
 $iscc = @("$env:LOCALAPPDATA\Programs\Inno Setup 7\ISCC.exe", "$env:ProgramFiles\Inno Setup 7\ISCC.exe") |
