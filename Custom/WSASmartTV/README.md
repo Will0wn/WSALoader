@@ -6,7 +6,7 @@ Mod for **WSALoader** that makes WSA comfortable to use like a TV:
    re-applying it by hand through adb.
 2. **Fullscreen** - every Android app opens in fullscreen.
 3. **Remote** - a web page on your home network, opened in the phone browser, with a TV-remote
-   layout and a PIN.
+   layout and a PIN. Served by this PC (standalone) or by your own server (external).
 
 Requires WSALoader (see `Custom\WSALoader\README.md`). Settings are chosen in the setup and can be
 changed later in `config.ini`. To disable the mod: rename `WSASmartTV.dll` and restart WSA.
@@ -21,13 +21,22 @@ changed later in `config.ini`. To disable the mod: rename `WSASmartTV.dll` and r
 Density=560
 ; 1 = every app opens in fullscreen (automatic F11), 0 = off
 Fullscreen=1
-; Port of the remote page. 0 = remote off
+; Phone remote: standalone, external or off
+RemoteMode=standalone
+; Standalone: port of the remote page
 RemotePort=8580
-; PIN asked by the page, digits only (empty = no PIN)
+; Standalone: PIN asked by the page, digits only (empty = no PIN)
 RemotePin=1234
+; External: address of your remote server (ws:// or wss://)
+RemoteServer=
+; External: sent to the server as "Authorization: Bearer <token>"
+RemoteToken=
 ; App opened by the Home key (Android package name)
 RemoteHome=com.spocky.projengmenu
 ```
+
+Without `RemoteMode` (a `config.ini` from 0.3.x), `RemotePort=0` means off and any other port
+means standalone.
 
 Put comments on their own line: after a value they would be read as part of it. Changes apply the
 next time WSA starts.
@@ -35,6 +44,13 @@ next time WSA starts.
 ---
 
 ## Phone remote
+
+The remote has two modes, chosen in the setup (`RemoteMode`):
+
+- **Standalone** - this PC serves the page on `RemotePort`, protected by the PIN. Described below.
+- **External** - no port is opened on this PC: while WSA runs, the mod connects to your own server
+  and runs the keys it forwards. The page is served by the server, which can also control other
+  devices from the same remote. See [External remote](#external-remote).
 
 While WSA is running, open **`http://<PC IP>:8580`** (port = `RemotePort`) in the phone browser,
 enter the PIN the first time (the browser remembers it) and add the page to the Home Screen: it opens
@@ -57,6 +73,45 @@ and anyone on the local network can connect with full access: if you don't need 
 
 ---
 
+## External remote
+
+For a remote that lives on an always-on machine (a home server, a NAS, a Raspberry Pi) instead of
+on the PC. WSASmartTV provides the WSA side only: the server is yours to write, and it can serve
+`remote.html` as it is.
+
+Settings:
+
+```ini
+RemoteMode=external
+RemoteServer=ws://192.168.1.10:8580/wsa
+RemoteToken=a-long-random-secret
+```
+
+While WSA is running the mod opens a WebSocket connection to `RemoteServer` (`ws://`, or `wss://`
+with a certificate Windows trusts), sending the header `Authorization: Bearer <RemoteToken>`. If
+the connection drops it retries after 5 seconds; while the server cannot be reached it waits longer
+each time, up to 1 minute. When WSA is
+turned off the connection closes: that is how the server knows WSA is off.
+
+Protocol, on that connection:
+
+- **Server -> WSA**, a text message: `<id> <path>`. The paths are the ones `remote.html` requests
+  in standalone mode, so the server can forward them unchanged; the PIN parameter is ignored.
+  - `/k?c=<key>` - a key: `up`, `down`, `left`, `right`, `ok`, `enter`, `backspace`, `back`,
+    `home`, `close`, `power`, `volup`, `voldown`, `mute`, `ping`
+  - `/t?s=<text>` - types text (URL-encoded UTF-8)
+  - `/apps` - installed apps, as a JSON array of package names
+  - `/icon?pkg=<package>` - icon of an installed app (PNG)
+  - `/open?pkg=<package>` - opens an installed app
+- **WSA -> server**, a binary message: `<id>\n<status>\n<content type>\n<body>`, for example
+  `7\n200 OK\ntext/plain; charset=utf-8\nok`. `<id>` is the one of the request, any text without
+  spaces.
+
+Requests are run one at a time, in order. The server is responsible for who may use the remote: the
+mod trusts whatever arrives on the connection, so keep the token secret.
+
+---
+
 ## How it works
 
 Hooks in the **delay-load** import table of `WsaClient.exe` (the .exe is not patched on disk):
@@ -72,8 +127,10 @@ Hooks in the **delay-load** import table of `WsaClient.exe` (the .exe is not pat
   - Splash screens (`<package>(splash)`) are skipped: in fullscreen they got stuck when the app
     closed.
 - **Remote**
-  - A thread serves `remote.html` on `RemotePort` (all interfaces, IPv4). The firewall lets it
-    through with the rules WSA creates for `WsaClient.exe`.
+  - Standalone: a thread serves `remote.html` on `RemotePort` (all interfaces, IPv4). The firewall
+    lets it through with the rules WSA creates for `WsaClient.exe`.
+  - External: a thread keeps the WebSocket connection to `RemoteServer` (WinHTTP) and passes each
+    request to the same code that answers the standalone page.
   - Every key is a `GET /k?c=<key>&p=<PIN>` request; a wrong PIN -> `403` after 1 s (slows down
     guessing).
   - Arrows -> `WM_KEYDOWN`/`WM_KEYUP` to the foreground app window (or the topmost open one).
@@ -95,7 +152,7 @@ Hooks in the **delay-load** import table of `WsaClient.exe` (the .exe is not pat
     underscores, and only installed apps, are accepted.
 
 Log: `%TEMP%\WSASmartTV.log` (`loaded: ...`, `new window ...`, `F11 sent ...`,
-`remote listening ...`).
+`remote listening ...`, `external remote: ...`).
 
 ---
 

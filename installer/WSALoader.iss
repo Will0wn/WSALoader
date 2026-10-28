@@ -1,6 +1,6 @@
 ; WSALoader setup (Inno Setup 7)
 ; Crafted by Will0wn - https://github.com/Will0wn
-#define AppVer "0.3.2"
+#define AppVer "0.4.0"
 #define Src "..\Custom"
 
 [Setup]
@@ -97,11 +97,11 @@ Type: dirifempty; Name: "{app}\Custom"
 
 [Code]
 var
-  TvPage: TWizardPage;
+  TvPage, RemotePage: TWizardPage;
   DensityBox: TNewComboBox;
-  RemoteBox: TNewCheckBox;
-  PinLabel: TNewStaticText;
-  PinEdit: TNewEdit;
+  StandaloneRadio, ExternalRadio, OffRadio: TNewRadioButton;
+  PinLabel, ServerLabel, TokenLabel: TNewStaticText;
+  PinEdit, ServerEdit, TokenEdit: TNewEdit;
   DensityValues: TArrayOfString;
   RemotePort, PcIp: String;
   SettingsLoaded, LoaderFailed: Boolean;
@@ -118,18 +118,49 @@ end;
 
 procedure RemoteClick(Sender: TObject);
 begin
-  PinLabel.Enabled := RemoteBox.Checked;
-  PinEdit.Enabled := RemoteBox.Checked;
+  PinLabel.Enabled := StandaloneRadio.Checked;
+  PinEdit.Enabled := StandaloneRadio.Checked;
+  ServerLabel.Enabled := ExternalRadio.Checked;
+  ServerEdit.Enabled := ExternalRadio.Checked;
+  TokenLabel.Enabled := ExternalRadio.Checked;
+  TokenEdit.Enabled := ExternalRadio.Checked;
+end;
+
+function NewLabelOn(Page: TWizardPage; const Caption: String; Left, Top: Integer): TNewStaticText;
+begin
+  Result := TNewStaticText.Create(Page);
+  Result.Parent := Page.Surface;
+  Result.Caption := Caption;
+  Result.Left := Left;
+  Result.Top := Top;
+  Result.Width := Page.SurfaceWidth - Left;
+  Result.WordWrap := True;
 end;
 
 function NewLabel(const Caption: String; Top: Integer): TNewStaticText;
 begin
-  Result := TNewStaticText.Create(TvPage);
-  Result.Parent := TvPage.Surface;
+  Result := NewLabelOn(TvPage, Caption, 0, Top);
+end;
+
+function NewEdit(Left, Top, Width, MaxLength: Integer): TNewEdit;
+begin
+  Result := TNewEdit.Create(RemotePage);
+  Result.Parent := RemotePage.Surface;
+  Result.Left := Left;
+  Result.Top := Top;
+  Result.Width := Width;
+  Result.MaxLength := MaxLength;
+end;
+
+function NewRadio(const Caption: String; Top: Integer): TNewRadioButton;
+begin
+  Result := TNewRadioButton.Create(RemotePage);
+  Result.Parent := RemotePage.Surface;
   Result.Caption := Caption;
   Result.Top := Top;
-  Result.Width := TvPage.SurfaceWidth;
-  Result.WordWrap := True;
+  Result.Width := RemotePage.SurfaceWidth;
+  Result.Height := ScaleY(17);
+  Result.OnClick := @RemoteClick;
 end;
 
 procedure InitializeWizard;
@@ -137,7 +168,7 @@ var
   L: TNewStaticText;
 begin
   TvPage := CreateCustomPage(wpSelectComponents, 'WSASmartTV settings',
-    'Android scale and phone remote. You can change them later in Custom\WSASmartTV\config.ini.');
+    'Android scale. You can change it later in Custom\WSASmartTV\config.ini.');
 
   L := NewLabel('Android UI scale (density):', 0);
   DensityBox := TNewComboBox.Create(TvPage);
@@ -152,25 +183,25 @@ begin
   AddDensity('560', '560 - large (recommended for a TV)');
   AddDensity('640', '640 - extra large');
   AddDensity('0', 'Same as Windows');
-  L := NewLabel('Higher values make everything bigger.', DensityBox.Top + DensityBox.Height + ScaleY(4));
+  NewLabel('Higher values make everything bigger.', DensityBox.Top + DensityBox.Height + ScaleY(4));
 
-  RemoteBox := TNewCheckBox.Create(TvPage);
-  RemoteBox.Parent := TvPage.Surface;
-  RemoteBox.Caption := 'Enable the phone remote (web page on your home network)';
-  RemoteBox.Top := L.Top + L.Height + ScaleY(20);
-  RemoteBox.Width := TvPage.SurfaceWidth;
-  RemoteBox.Height := ScaleY(17);
-  RemoteBox.OnClick := @RemoteClick;
+  RemotePage := CreateCustomPage(TvPage.ID, 'Phone remote',
+    'How the remote reaches WSA. You can change it later in Custom\WSASmartTV\config.ini.');
 
-  PinLabel := NewLabel('Remote PIN (at least 4 digits):', RemoteBox.Top + RemoteBox.Height + ScaleY(10));
-  PinEdit := TNewEdit.Create(TvPage);
-  PinEdit.Parent := TvPage.Surface;
-  PinEdit.Top := PinLabel.Top + PinLabel.Height + ScaleY(6);
-  PinEdit.Width := ScaleX(120);
-  PinEdit.MaxLength := 12;
+  StandaloneRadio := NewRadio('Standalone: this PC serves the remote page on your home network', 0);
+  PinLabel := NewLabelOn(RemotePage, 'PIN (4 to 12 digits):', ScaleX(18), StandaloneRadio.Top + StandaloneRadio.Height + ScaleY(6));
+  PinEdit := NewEdit(ScaleX(18), PinLabel.Top + PinLabel.Height + ScaleY(4), ScaleX(120), 12);
 
-  NewLabel('The remote works only while WSA is running. The PIN is asked once by the phone browser.',
-    PinEdit.Top + PinEdit.Height + ScaleY(12));
+  ExternalRadio := NewRadio('External: WSA connects to your remote server, no port is opened on this PC',
+    PinEdit.Top + PinEdit.Height + ScaleY(16));
+  ServerLabel := NewLabelOn(RemotePage, 'Server address (ws:// or wss://):', ScaleX(18), ExternalRadio.Top + ExternalRadio.Height + ScaleY(6));
+  ServerEdit := NewEdit(ScaleX(18), ServerLabel.Top + ServerLabel.Height + ScaleY(4), RemotePage.SurfaceWidth - ScaleX(18), 500);
+  TokenLabel := NewLabelOn(RemotePage, 'Token (the same one set on the server, at least 8 characters):', ScaleX(18), ServerEdit.Top + ServerEdit.Height + ScaleY(8));
+  TokenEdit := NewEdit(ScaleX(18), TokenLabel.Top + TokenLabel.Height + ScaleY(4), ScaleX(240), 120);
+
+  OffRadio := NewRadio('Off', TokenEdit.Top + TokenEdit.Height + ScaleY(16));
+
+  NewLabelOn(RemotePage, 'The remote works only while WSA is running.', 0, OffRadio.Top + OffRadio.Height + ScaleY(12));
 end;
 
 function ConfigFile: String;
@@ -181,19 +212,28 @@ end;
 // fills the page from the existing config.ini (update) or with the defaults
 procedure LoadSettings;
 var
-  Density, Port: String;
+  Density, Port, Mode: String;
   I: Integer;
 begin
   Density := '560';
   RemotePort := '8580';
-  RemoteBox.Checked := True;
+  Mode := 'standalone';
   PinEdit.Text := '';
   if FileExists(ConfigFile) then begin
     Density := GetIniString('WSASmartTV', 'Density', '560', ConfigFile);
     Port := GetIniString('WSASmartTV', 'RemotePort', '8580', ConfigFile);
-    if Port = '0' then RemoteBox.Checked := False else RemotePort := Port;
+    if Port <> '0' then RemotePort := Port;
+    // config of 0.3.x has no RemoteMode: RemotePort=0 meant off
+    Mode := Lowercase(GetIniString('WSASmartTV', 'RemoteMode', '', ConfigFile));
+    if Mode = '' then
+      if Port = '0' then Mode := 'off' else Mode := 'standalone';
     PinEdit.Text := GetIniString('WSASmartTV', 'RemotePin', '', ConfigFile);
+    ServerEdit.Text := GetIniString('WSASmartTV', 'RemoteServer', '', ConfigFile);
+    TokenEdit.Text := GetIniString('WSASmartTV', 'RemoteToken', '', ConfigFile);
   end;
+  StandaloneRadio.Checked := (Mode <> 'external') and (Mode <> 'off');
+  ExternalRadio.Checked := Mode = 'external';
+  OffRadio.Checked := Mode = 'off';
   DensityBox.ItemIndex := -1;
   for I := 0 to GetArrayLength(DensityValues) - 1 do
     if DensityValues[I] = Density then DensityBox.ItemIndex := I;
@@ -213,9 +253,17 @@ begin
     if (Pin[I] < '0') or (Pin[I] > '9') then Result := False;
 end;
 
+function ValidServer(const Url: String): Boolean;
+var
+  U: String;
+begin
+  U := Lowercase(Url);
+  Result := ((Pos('ws://', U) = 1) and (Length(U) > 5)) or ((Pos('wss://', U) = 1) and (Length(U) > 6));
+end;
+
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
-  Result := (PageID = TvPage.ID) and not WizardIsComponentSelected('smarttv');
+  Result := ((PageID = TvPage.ID) or (PageID = RemotePage.ID)) and not WizardIsComponentSelected('smarttv');
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -226,9 +274,19 @@ begin
       'Select the folder where Windows Subsystem for Android is installed.', mbError, MB_OK);
     Result := False;
   end;
-  if (CurPageID = TvPage.ID) and RemoteBox.Checked and not ValidPin(Trim(PinEdit.Text)) then begin
+  if (CurPageID = RemotePage.ID) and StandaloneRadio.Checked and not ValidPin(Trim(PinEdit.Text)) then begin
     MsgBox('Choose a remote PIN of 4 to 12 digits.', mbError, MB_OK);
     Result := False;
+  end;
+  if (CurPageID = RemotePage.ID) and ExternalRadio.Checked then begin
+    if not ValidServer(Trim(ServerEdit.Text)) then begin
+      MsgBox('Enter the server address, starting with ws:// or wss://' + #13#10 +
+        '(for example ws://192.168.1.10:8580/wsa).', mbError, MB_OK);
+      Result := False;
+    end else if (Length(Trim(TokenEdit.Text)) < 8) or (Pos(' ', Trim(TokenEdit.Text)) > 0) then begin
+      MsgBox('Enter the token set on the server: at least 8 characters, no spaces.', mbError, MB_OK);
+      Result := False;
+    end;
   end;
 end;
 
@@ -256,11 +314,17 @@ var
 begin
   Cfg := ExpandConstant('{app}\Custom\WSASmartTV\config.ini');
   SetIniString('WSASmartTV', 'Density', DensityValues[DensityBox.ItemIndex], Cfg);
-  if RemoteBox.Checked then begin
-    SetIniString('WSASmartTV', 'RemotePort', RemotePort, Cfg);
+  // RemotePort stays a real port: the mode decides whether the remote is on
+  SetIniString('WSASmartTV', 'RemotePort', RemotePort, Cfg);
+  if StandaloneRadio.Checked then begin
+    SetIniString('WSASmartTV', 'RemoteMode', 'standalone', Cfg);
     SetIniString('WSASmartTV', 'RemotePin', Trim(PinEdit.Text), Cfg);
+  end else if ExternalRadio.Checked then begin
+    SetIniString('WSASmartTV', 'RemoteMode', 'external', Cfg);
+    SetIniString('WSASmartTV', 'RemoteServer', Trim(ServerEdit.Text), Cfg);
+    SetIniString('WSASmartTV', 'RemoteToken', Trim(TokenEdit.Text), Cfg);
   end else
-    SetIniString('WSASmartTV', 'RemotePort', '0', Cfg);
+    SetIniString('WSASmartTV', 'RemoteMode', 'off', Cfg);
 end;
 
 // install.ps1 tests the loader inside the WSA folder and only then puts it in place
@@ -311,11 +375,14 @@ begin
       Text := 'The files were copied, but WSALoader could not be activated: WSA is unchanged.'
     else begin
       Text := 'WSALoader is installed. Start an Android app: the mods load with WSA.';
-      if WizardIsComponentSelected('smarttv') and RemoteBox.Checked then begin
+      if WizardIsComponentSelected('smarttv') and StandaloneRadio.Checked then begin
         if PcIp = '' then PcIp := '<PC IP>';
         Text := Text + #13#10#13#10 + 'Phone remote: open http://' + PcIp + ':' + RemotePort +
           ' in the phone browser while WSA is running, then enter your PIN.';
       end;
+      if WizardIsComponentSelected('smarttv') and ExternalRadio.Checked then
+        Text := Text + #13#10#13#10 + 'Phone remote: while WSA is running it connects to ' +
+          Trim(ServerEdit.Text) + '. Open the remote from your server.';
     end;
     WizardForm.FinishedLabel.Caption := Text + #13#10#13#10 + 'Crafted by Will0wn - github.com/Will0wn';
     WizardForm.AdjustLabelHeight(WizardForm.FinishedLabel);
