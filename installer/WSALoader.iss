@@ -1,6 +1,6 @@
 ; WSALoader setup (Inno Setup 7)
 ; Crafted by Will0wn - https://github.com/Will0wn
-#define AppVer "0.4.0"
+#define AppVer "0.4.1"
 #define Src "..\Custom"
 
 [Setup]
@@ -24,6 +24,7 @@ UsePreviousAppDir=yes
 DisableProgramGroupPage=yes
 UninstallFilesDir={app}\Custom\WSALoader
 UninstallDisplayName=WSALoader
+UninstallDisplayIcon={app}\Custom\WSALoader\WSALoader.ico
 CloseApplications=no
 WizardStyle=modern
 Compression=lzma2
@@ -78,6 +79,7 @@ Source: "{#Src}\WSALoader\WSALoader.dll"; DestDir: "{app}\Custom\WSALoader"; Com
 Source: "{#Src}\WSALoader\install.ps1"; DestDir: "{app}\Custom\WSALoader"; Components: loader; Flags: ignoreversion
 Source: "{#Src}\WSALoader\uninstall.ps1"; DestDir: "{app}\Custom\WSALoader"; Components: loader; Flags: ignoreversion
 Source: "{#Src}\WSALoader\README.md"; DestDir: "{app}\Custom\WSALoader"; Components: loader; Flags: ignoreversion
+Source: "{#Src}\WSALoader\WSALoader.ico"; DestDir: "{app}\Custom\WSALoader"; Components: loader; Flags: ignoreversion
 Source: "{#Src}\WSALoader\AndroidTV.ico"; DestDir: "{app}\Custom\WSALoader"; Components: loader; Flags: ignoreversion
 Source: "{#Src}\WSASmartTV\WSASmartTV.dll"; DestDir: "{app}\Custom\WSASmartTV"; Components: smarttv; Flags: ignoreversion
 Source: "{#Src}\WSASmartTV\remote.html"; DestDir: "{app}\Custom\WSASmartTV"; Components: smarttv; Flags: ignoreversion
@@ -105,6 +107,13 @@ var
   DensityValues: TArrayOfString;
   RemotePort, PcIp: String;
   SettingsLoaded, LoaderFailed: Boolean;
+  // maintenance of an existing installation
+  InstalledVersion, InstalledDir: String;
+  MaintenanceButton: TNewButton;
+  UpdateMode, ExitQuietly: Boolean;
+
+const
+  UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{6F1D2B7A-3C4E-4F8A-9B2D-7E5C1A9F0D34}_is1';
 
 procedure AddDensity(const Value, Caption: String);
 var
@@ -264,6 +273,9 @@ end;
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := ((PageID = TvPage.ID) or (PageID = RemotePage.ID)) and not WizardIsComponentSelected('smarttv');
+  // Update goes straight to the installation with the previous folder, components and tasks
+  if UpdateMode and ((PageID = wpSelectDir) or (PageID = wpSelectComponents) or (PageID = TvPage.ID) or
+     (PageID = RemotePage.ID) or (PageID = wpSelectTasks) or (PageID = wpReady)) then Result := True;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -328,18 +340,26 @@ begin
 end;
 
 // install.ps1 tests the loader inside the WSA folder and only then puts it in place
-procedure ActivateLoader;
+function RunInstallScript(const Dir: String; var Output: AnsiString): Integer;
 var
   Log, Params: String;
+begin
+  Log := ExpandConstant('{tmp}\wsaloader-install.log');
+  DeleteFile(Log);
+  Params := '-NoProfile -ExecutionPolicy Bypass -File "' + AddBackslash(Dir) + 'Custom\WSALoader\install.ps1' +
+    '" -Log "' + Log + '"';
+  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params, '', SW_HIDE,
+              ewWaitUntilTerminated, Result) then Result := -1;
+  Output := '';
+  LoadStringFromFile(Log, Output);
+end;
+
+procedure ActivateLoader;
+var
   Output: AnsiString;
   Code, P: Integer;
 begin
-  Log := ExpandConstant('{tmp}\wsaloader-install.log');
-  Params := '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\Custom\WSALoader\install.ps1') +
-    '" -Log "' + Log + '"';
-  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params, '', SW_HIDE,
-              ewWaitUntilTerminated, Code) then Code := -1;
-  LoadStringFromFile(Log, Output);
+  Code := RunInstallScript(ExpandConstant('{app}'), Output);
   if Code <> 0 then begin
     LoaderFailed := True;
     MsgBox('WSALoader could not be activated. WSA was not modified.' + #13#10#13#10 + String(Output), mbError, MB_OK);
@@ -357,15 +377,203 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then begin
-    if WizardIsComponentSelected('smarttv') then SaveSettings;
+    // Update keeps config.ini as it is
+    if WizardIsComponentSelected('smarttv') and not UpdateMode then SaveSettings;
     ActivateLoader;
   end;
+end;
+
+// ---- maintenance of an existing installation: Update, Repair, Uninstall ----
+
+procedure DetectInstallation;
+begin
+  InstalledVersion := '';
+  InstalledDir := '';
+  if RegQueryStringValue(HKLM, UninstallKey, 'Inno Setup: App Path', InstalledDir) and
+     FileExists(AddBackslash(InstalledDir) + 'Custom\WSALoader\install.ps1') then
+    RegQueryStringValue(HKLM, UninstallKey, 'DisplayVersion', InstalledVersion);
+end;
+
+procedure CloseSetup;
+begin
+  ExitQuietly := True;
+  WizardForm.Close;
+end;
+
+procedure CancelButtonClick(CurPageID: Integer; var Cancel, Confirm: Boolean);
+begin
+  if ExitQuietly then Confirm := False;
+end;
+
+procedure DoUpdate;
+begin
+  // the finish page describes the remote from the current settings
+  if not SettingsLoaded then begin
+    LoadSettings;
+    SettingsLoaded := True;
+  end;
+  UpdateMode := True;
+  MaintenanceButton.Visible := False;
+  WizardForm.NextButton.OnClick(WizardForm.NextButton);
+end;
+
+procedure DoRepair;
+var
+  Dll: AnsiString;
+  Output: AnsiString;
+begin
+  if LoadStringFromFile(AddBackslash(InstalledDir) + 'gfxstream_backend.dll', Dll) and
+     (Pos('gfxstream_real.', String(Dll)) > 0) then begin
+    MsgBox('WSALoader is already active: nothing to repair.', mbInformation, MB_OK);
+    Exit;
+  end;
+  if RunInstallScript(InstalledDir, Output) <> 0 then
+    MsgBox('Repair failed: WSA was not modified.' + #13#10#13#10 + String(Output), mbError, MB_OK)
+  else begin
+    MsgBox('WSALoader repaired. Start an Android app: the mods load with WSA.', mbInformation, MB_OK);
+    CloseSetup;
+  end;
+end;
+
+procedure DoUninstall(SmartTVOnly: Boolean);
+var
+  Uninstaller: String;
+  Code: Integer;
+begin
+  if SmartTVOnly then begin
+    // only WsaClient loads the mods: close it before removing the DLL
+    Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM WsaClient.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
+    Sleep(1000);
+    if not DelTree(AddBackslash(InstalledDir) + 'Custom\WSASmartTV', True, True, True) then begin
+      MsgBox('WSASmartTV could not be removed.', mbError, MB_OK);
+      Exit;
+    end;
+    // the next setup run must not select WSASmartTV again
+    RegWriteStringValue(HKLM, UninstallKey, 'Inno Setup: Setup Type', 'custom');
+    RegWriteStringValue(HKLM, UninstallKey, 'Inno Setup: Selected Components', 'loader');
+    RegWriteStringValue(HKLM, UninstallKey, 'Inno Setup: Deselected Components', 'smarttv');
+    MsgBox('WSASmartTV removed. WSALoader stays installed.', mbInformation, MB_OK);
+    CloseSetup;
+  end else begin
+    if not RegQueryStringValue(HKLM, UninstallKey, 'UninstallString', Uninstaller) then Exit;
+    StringChangeEx(Uninstaller, '"', '', True);
+    if Exec(Uninstaller, '', '', SW_SHOW, ewNoWait, Code) then CloseSetup
+    else MsgBox('The uninstaller could not be started.', mbError, MB_OK);
+  end;
+end;
+
+function MaintenanceRow(Form: TSetupForm; const Caption, Text: String; Top, Res: Integer): TNewButton;
+var
+  L: TNewStaticText;
+begin
+  Result := TNewButton.Create(Form);
+  Result.Parent := Form;
+  Result.Caption := Caption;
+  Result.Left := ScaleX(16);
+  Result.Top := Top;
+  Result.Width := ScaleX(96);
+  Result.Height := ScaleY(26);
+  Result.ModalResult := Res;
+  L := TNewStaticText.Create(Form);
+  L.Parent := Form;
+  L.Caption := Text;
+  L.Left := ScaleX(124);
+  L.Top := Top + ScaleY(4);
+  L.Width := Form.ClientWidth - ScaleX(140);
+  L.WordWrap := True;
+end;
+
+procedure MaintenanceClick(Sender: TObject);
+var
+  Form: TSetupForm;
+  B: TNewButton;
+  SmartTVRadio, AllRadio: TNewRadioButton;
+  UpdateCaption, UpdateText: String;
+  HasSmartTV, SmartTVOnly: Boolean;
+  Top, Choice: Integer;
+begin
+  HasSmartTV := FileExists(AddBackslash(InstalledDir) + 'Custom\WSASmartTV\WSASmartTV.dll');
+  if InstalledVersion = '{#AppVer}' then begin
+    UpdateCaption := 'Reinstall';
+    UpdateText := 'Installs {#AppVer} again. Keeps the WSA folder, the mods and their settings.';
+  end else begin
+    UpdateCaption := 'Update';
+    UpdateText := 'Installs {#AppVer} over ' + InstalledVersion + '. Keeps the WSA folder, the mods and their settings.';
+  end;
+
+  Form := CreateCustomForm(ScaleX(500), ScaleY(250), False, True);
+  try
+    Form.Caption := 'WSALoader maintenance';
+    Top := ScaleY(16);
+    MaintenanceRow(Form, UpdateCaption, UpdateText, Top, mrYes);
+    Top := Top + ScaleY(48);
+    MaintenanceRow(Form, 'Repair', 'Puts WSALoader back after a WSA update replaced gfxstream_backend.dll.', Top, mrRetry);
+    Top := Top + ScaleY(48);
+    MaintenanceRow(Form, 'Uninstall', '', Top, mrAbort);
+
+    SmartTVRadio := TNewRadioButton.Create(Form);
+    SmartTVRadio.Parent := Form;
+    SmartTVRadio.Caption := 'WSASmartTV only';
+    SmartTVRadio.Left := ScaleX(124);
+    SmartTVRadio.Top := Top + ScaleY(4);
+    SmartTVRadio.Width := Form.ClientWidth - ScaleX(140);
+    SmartTVRadio.Enabled := HasSmartTV;
+    AllRadio := TNewRadioButton.Create(Form);
+    AllRadio.Parent := Form;
+    AllRadio.Caption := 'Everything: WSALoader and all its mods';
+    AllRadio.Left := ScaleX(124);
+    AllRadio.Top := SmartTVRadio.Top + ScaleY(22);
+    AllRadio.Width := Form.ClientWidth - ScaleX(140);
+    AllRadio.Checked := True;
+
+    B := TNewButton.Create(Form);
+    B.Parent := Form;
+    B.Caption := 'Close';
+    B.Width := ScaleX(80);
+    B.Height := ScaleY(26);
+    B.Left := Form.ClientWidth - B.Width - ScaleX(16);
+    B.Top := Form.ClientHeight - B.Height - ScaleY(12);
+    B.ModalResult := mrCancel;
+    B.Cancel := True;
+
+    Choice := Form.ShowModal;
+    SmartTVOnly := HasSmartTV and SmartTVRadio.Checked;
+  finally
+    Form.Free;
+  end;
+
+  case Choice of
+    mrYes: DoUpdate;
+    mrRetry: DoRepair;
+    mrAbort: DoUninstall(SmartTVOnly);
+  end;
+end;
+
+// bottom left of the wizard, only when WSALoader is already installed
+procedure CreateMaintenanceButton;
+begin
+  DetectInstallation;
+  if InstalledVersion = '' then Exit;
+  MaintenanceButton := TNewButton.Create(WizardForm);
+  MaintenanceButton.Parent := WizardForm;
+  MaintenanceButton.Caption := '&Maintenance...';
+  MaintenanceButton.Width := ScaleX(110);
+  MaintenanceButton.Height := WizardForm.CancelButton.Height;
+  MaintenanceButton.Top := WizardForm.CancelButton.Top;
+  MaintenanceButton.Left := WizardForm.ClientWidth - WizardForm.CancelButton.Left - WizardForm.CancelButton.Width;
+  MaintenanceButton.OnClick := @MaintenanceClick;
+  WizardForm.SelectComponentsLabel.Caption := 'WSALoader ' + InstalledVersion +
+    ' is already installed. Click Next to change the installation, or Maintenance to update, repair or uninstall it.';
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
 var
   Text: String;
 begin
+  if MaintenanceButton = nil then CreateMaintenanceButton;
+  if MaintenanceButton <> nil then
+    MaintenanceButton.Visible := not UpdateMode and ((CurPageID <= wpReady) or (CurPageID = TvPage.ID) or
+      (CurPageID = RemotePage.ID));
   if (CurPageID = TvPage.ID) and not SettingsLoaded then begin
     LoadSettings;
     SettingsLoaded := True;

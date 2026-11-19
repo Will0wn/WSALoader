@@ -18,7 +18,7 @@ Mods run inside `WsaClient.exe`: no extra process, no background service, nothin
 
 ## Status
 
-Early release (0.4.0). Tested on Windows 11 with:
+Early release (0.4.1). Tested on Windows 11 with:
 
 - Projectivy Launcher
 - Crunchyroll
@@ -49,6 +49,17 @@ The setup replaces `gfxstream_backend.dll` only after the loader has passed a lo
 WSA folder. If the test fails, WSA is left untouched.
 
 Uninstall from **Settings > Apps > WSALoader**: the original DLL is put back.
+
+## Maintenance
+
+Run the setup again on a PC where WSALoader is already installed: **Next** changes the installation,
+**Maintenance...** (bottom left) opens:
+
+- **Update** (or **Reinstall** for the same version): installs the setup's version over the
+  installed one, without the setup pages. The WSA folder, the mods and their settings are kept.
+- **Repair**: a new WSA build (e.g. a new WSABuilds release) replaces `gfxstream_backend.dll` and
+  WSALoader stops loading. Repair puts it back, with the same load test as the installation.
+- **Uninstall**: WSASmartTV only, or everything (WSALoader and all its mods).
 
 ## Known issues
 
